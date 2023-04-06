@@ -5,6 +5,7 @@ library(broom)
 data.merge <- read_csv("Modified Data/data.merged.csv")
 treatment <- filter(data.merge, Treatment!="NO")
 gene.list <- (colnames(data.merge[7:ncol(data.merge)]))
+
 ################################ Find the significant genes between treatments ###################################
 treatment <- treatment %>% filter(Dose != "MED" | Dose !="LOW")
 VER <- treatment %>% 
@@ -34,7 +35,7 @@ ver.model$Beta <- as.numeric(ver.model$Beta)
 ver.model$pval <- as.numeric(ver.model$pval)
 ver.model <- filter(ver.model, covariates!="(Intercept)")
 ver.sig.gene <- ver.model %>% filter(pval<=0.05)
-
+ver.gene <- ver.sig.gene$Gene
 
 lev.model <- data.frame()
 for (i in 1:length(gene.list)) {
@@ -52,6 +53,7 @@ lev.model$Beta <- as.numeric(lev.model$Beta)
 lev.model$pval <- as.numeric(lev.model$pval)
 lev.model <- filter(lev.model, covariates!="(Intercept)")
 lev.sig.gene <- lev.model %>% filter(pval<=0.05)
+lev.gene <- lev.sig.gene$Gene
 
 write_csv(lev.sig.gene, "Results/LEV_Significant_Genes.csv")
 write_csv(ver.sig.gene, "Results/VER_Significant_Genes.csv")
@@ -61,44 +63,6 @@ ggplot(data=ver.model) +
   geom_hline(aes(yintercept=1.30103), color="red") +
   labs(title="Treatment Linear Regression VER", caption="N=36")
 ggsave("Results/VER_Treatment_Regression.png")
-
-######## Anovas of LEV and VER #####
-VER <- treatment %>% 
-  filter(Treatment=="VER" & Genotype=="5xFAD" & Dose=="VEH" |
-           Treatment=="VER" & Genotype=="5xFAD" & Dose=="HIGH") %>% 
-  pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
-
-LEV <- treatment %>% filter(Treatment=="LEV" & Genotype=="5xFAD" & Dose=="VEH" |
-                              Treatment=="LEV" & Genotype=="5xFAD" & Dose=="HIGH") %>% 
-  pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
-
-VER.Anova <- data.frame()
-for(i in 1:length(gene.list)){
-  temp <- filter(VER, Gene==gene.list[i])
-  temp.aov <- aov(Expression ~ Dose, data=temp)
-  pval <- tidy(temp.aov)$p.value[1]
-  X <- cbind(gene.list[i], pval)
-  VER.Anova <- rbind(VER.Anova, X)
-}
-colnames(VER.Anova) <- c("Gene", "VER_pval")
-sig.VER.Anova <- filter(VER.Anova, VER_pval <0.05)
-
-
-LEV.Anova <- data.frame()
-for(i in 1:length(gene.list)){
-  temp <- filter(LEV, Gene==gene.list[i])
-  temp.aov <- aov(Expression ~ Dose, data=temp)
-  pval <- tidy(temp.aov)$p.value[1]
-  X <- cbind(gene.list[i], pval)
-  LEV.Anova <- rbind(LEV.Anova, X)
-}
-colnames(LEV.Anova) <- c("Gene", "LEV_pval")
-sig.LEV.Anova <- filter(LEV.Anova, LEV_pval <0.05)
-
-compare <- full_join(LEV.Anova, VER.Anova, by="Gene")
-compare.sig <- filter(compare, LEV_pval<0.05 & VER_pval <0.05)
-LEV.sig <- filter(compare, LEV_pval<0.05)
-VER.sig <- filter(compare, VER_pval <0.05)
 
 ##########################################Comparing Expression of 3 sig genes ##################################################################
 treat.Lyrm9 <- treat %>% filter(Gene=="Lyrm9" & Treatment=="VER" & Genotype!="WT" & Dose!="LOW" & Dose!="MED" |
@@ -129,15 +93,9 @@ treat.Rras %>% ggplot() +
   xlim("VEH", "HIGH")
 ggsave("Results/Rras_Treatment_5xFAD.png")
 ####################### Look at pathways for each treatment ###################
-library(gprofiler2)
-ver.sig.gene <- arrange(ver.sig.gene, beta)
-gost.ver <- gost(ver.sig.gene$Gene, organism="mmusculus", ordered_query=TRUE)
-gost.ver.res <- gost.ver$result
-
-lev.sig.gene <- arrange(lev.sig.gene, beta)
-gost.lev <- gost(lev.sig.gene$Gene, organism="mmusculus", ordered_query=TRUE)
-gost.lev.res <- gost.lev$result
-
+LEV.panther <- treatment%>% filter(Treatment=="LEV", Dose=="HIGH") %>% pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression") %>%
+                     select(Gene, Expression)
+write_tsv(LEV.panther, "Results/LEV_panther.tsv")
 
 
 ##################################   Genes significantly effected by LEV in other genotypes ####
@@ -146,6 +104,17 @@ sig.LEV.gene <- sig.LEV.gene[str_detect(sig.LEV.gene$Genotype, "HFD", negate=TRU
 sig.LEV.gene <- sig.LEV.gene %>% pivot_longer(cols=7:ncol(sig.LEV.gene), names_to="Gene", values_to="Expression")
 sig.LEV.gene <- sig.LEV.gene %>% filter(Treatment=="NO" & Genotype!="WT")
 genotypes <- unique(sig.LEV.gene$Genotype)
+
+lev.dds <- sig.LEV.gene %>% mutate(APOE==ifelse(Genotype=="APOE",1,0), APOE==ifelse(Genotype=="APOE",1,0))
+test <- lev.sig.gene
+for (i in 1:length(genotypes)){
+  test$genotypes[i] <- NA
+}
+
+
+for(i in 1:length(genotypes)){
+ test <-  mutate(sig.LEV.gene, ifelse(Genotype==genotypes[i], 1,0))
+}
 
 sig.LEV.gene.model <- data.frame()
 for(i in 1:length(genotypes)){
@@ -195,79 +164,7 @@ lev.gene.counts <- left_join(lev.sig.dose.gene, lev.gene.counts, by="Gene") %>% 
 write_csv(lev.gene.counts, "Results/LEV_Significant_Gene_Genotype_Counts.csv")
 ####
 
-###### Does the dose affect expression? ####
-VER.dose  <- treatment %>% 
-  filter(Treatment=="VER" & Genotype=="5xFAD")
-VER.dose <- pivot_longer(VER.dose, cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
-VER.dose$Dose <- factor(VER.dose$Dose, levels=c("VEH", "LOW", "MED", "HIGH"))
-
-VER.dose <- filter(VER.dose, Dose != "VEH")
-VER.dose$Dose <- factor(VER.dose$Dose, levels=c("LOW", "MED", "HIGH"))
-VER.aov <- data.frame()
-for (i in 1:length(gene.list)) { #This should give all the genes where dose significantly affects the expression among mice that were given treatment. 
-  NSdata.Gene <- filter(VER.dose, Gene==gene.list[i])
-  aov <- Anova(lm(Expression ~ Dose, data=NSdata.Gene))
-  pval <-  tidy(aov)$p.value[1]
-  X <- cbind(gene.list[i], pval)
-  VER.aov <- rbind(VER.aov, X)
-}
-
-colnames(VER.aov) <- c("Gene", "pval")
-test1 <- filter(VER.aov, pval < 0.05)  #Shows that there are 47 genes where the dose is a significant factor in the expression level
-
-VER.dose  <- treatment %>% 
-  filter(Treatment=="VER" & Genotype=="5xFAD")
-VER.dose <- pivot_longer(VER.dose, cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
-VER.dose$Dose <- factor(VER.dose$Dose, levels=c("VEH", "LOW", "MED", "HIGH"))
-VER.aov <- data.frame()
-for (i in 1:length(gene.list)) { #This should give all the genes where dose significantly affects the expression among mice that were given treatment. 
-  NSdata.Gene <- filter(VER.dose, Gene==gene.list[i])
-  aov <- Anova(lm(Expression ~ Dose, data=NSdata.Gene))
-  pval <-  tidy(aov)$p.value[1]
-  X <- cbind(gene.list[i], pval)
-  VER.aov <- rbind(VER.aov, X)
-}
-
-colnames(VER.aov) <- c("Gene", "pval")
-test2 <- filter(VER.aov, pval < 0.05)  #Shows that there are 47 genes where the dose is a significant factor in the expression level
-
-LEV.dose  <- treatment %>% 
-  filter(Treatment=="LEV" & Genotype=="5xFAD")
-LEV.dose <- pivot_longer(LEV.dose, cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
-LEV.dose$Dose <- factor(LEV.dose$Dose, levels=c("VEH", "LOW", "MED", "HIGH"))
-
-LEV.dose <- filter(LEV.dose, Dose != "VEH")
-LEV.dose$Dose <- factor(LEV.dose$Dose, levels=c("LOW", "MED", "HIGH"))
-LEV.aov <- data.frame()
-for (i in 1:length(gene.list)) { #This should give all the genes where dose significantly affects the expression among mice that were given treatment. 
-  NSdata.Gene <- filter(LEV.dose, Gene==gene.list[i])
-  aov <- Anova(lm(Expression ~ Dose, data=NSdata.Gene))
-  pval <-  tidy(aov)$p.value[1]
-  X <- cbind(gene.list[i], pval)
-  LEV.aov <- rbind(LEV.aov, X)
-}
-
-colnames(LEV.aov) <- c("Gene", "pval")
-test1 <- filter(LEV.aov, pval < 0.05)  #Shows that there are 47 genes where the dose is a significant factor in the expression level
-
-LEV.dose  <- treatment %>% 
-  filter(Treatment=="LEV" & Genotype=="5xFAD")
-LEV.dose <- pivot_longer(LEV.dose, cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
-LEV.dose$Dose <- factor(LEV.dose$Dose, levels=c("VEH", "LOW", "MED", "HIGH"))
-LEV.aov <- data.frame()
-for (i in 1:length(gene.list)) { #This should give all the genes where dose significantly affects the expression among mice that were given treatment. 
-  NSdata.Gene <- filter(LEV.dose, Gene==gene.list[i])
-  aov <- Anova(lm(Expression ~ Dose, data=NSdata.Gene))
-  pval <-  tidy(aov)$p.value[1]
-  X <- cbind(gene.list[i], pval)
-  LEV.aov <- rbind(LEV.aov, X)
-}
-
-colnames(LEV.aov) <- c("Gene", "pval")
-test2 <- filter(LEV.aov, pval < 0.05)
-
-
-##### Keeping Dose in mind, which genes are changed by the treatment? ###
+##### Keeping Dose in mind, which genes are changed by the treatment? ######
 VER <- treatment %>% 
   filter(Treatment=="VER" & Genotype=="5xFAD") %>%
   pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression")
@@ -280,7 +177,7 @@ LEV$Dose <- factor(LEV$Dose, levels=c("VEH", "LOW", "MED", "HIGH"))
 ver.model <- data.frame()
 for (i in 1:length(gene.list)) {
   NSdata.Gene <- filter(VER, Gene==gene.list[i])
-  fit <- lm(Expression ~ Dose + Sex, data=NSdata.Gene)
+  fit <- lm(Expression ~ Dose, data=NSdata.Gene)
   beta <- summary(fit)$coeff[,1]
   pval <- summary(fit)$coeff[,4]
   X <- cbind(beta,pval,gene.list[i])
@@ -292,6 +189,7 @@ ver.model$Beta <- as.numeric(ver.model$Beta)
 ver.model$pval <- as.numeric(ver.model$pval)
 ver.model <- filter(ver.model, covariates!="(Intercept)")
 ver.sig.gene <- ver.model %>% filter(pval<=0.05)
+low.ver.sig.gene <- ver.sig.gene %>% filter(covariates=="DoseLOW")
 ver.model.wide <- ver.model %>% pivot_wider(values_from=c("Beta", "pval"), names_from=covariates)
 write_csv(ver.model.wide, "Results/VER_Dose_Model.csv")
 
