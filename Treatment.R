@@ -93,10 +93,16 @@ treat.Rras %>% ggplot() +
   xlim("VEH", "HIGH")
 ggsave("Results/Rras_Treatment_5xFAD.png")
 ####################### Look at pathways for each treatment ###################
-LEV.panther <- treatment%>% filter(Treatment=="LEV", Dose=="HIGH") %>% pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression") %>%
+LEV.high.panther <- treatment%>% filter(Treatment=="LEV", Dose=="HIGH") %>% pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression") %>%
                      select(Gene, Expression)
-write_tsv(LEV.panther, "Results/LEV_panther.tsv")
+LEV.high.panther <- LEV.high.panther %>% group_by(Gene) %>% summarise(Expression=mean(Expression))
 
+write_tsv(LEV.high.panther, "Results/LEV_high_panther.tsv")
+
+LEV.veh.panther <- treatment%>% filter(Treatment=="LEV", Dose=="VEH") %>% pivot_longer(cols=7:ncol(treatment), names_to="Gene", values_to="Expression") %>%
+  select(Gene, Expression)
+
+write_tsv(LEV.high.panther, "Results/LEV_veh_panther.tsv")
 
 ##################################   Genes significantly effected by LEV in other genotypes ####
 sig.LEV.gene <- data.merge %>% select(1:7, all_of(lev.gene))
